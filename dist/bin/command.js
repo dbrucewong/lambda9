@@ -20,6 +20,7 @@ const inquirer_1 = __importDefault(require("inquirer"));
 const ora_1 = __importDefault(require("ora"));
 const chalk_1 = __importDefault(require("chalk"));
 const axios_1 = __importDefault(require("axios"));
+const npmInstall = require('npm-install-package');
 const serve_1 = __importDefault(require("../lib/serve/serve"));
 const build_1 = require("../lib/build/build");
 const deploy_1 = __importDefault(require("../lib/deploy/deploy"));
@@ -27,7 +28,9 @@ const deploy_1 = __importDefault(require("../lib/deploy/deploy"));
 const ROOT_CONFIG_FILENAME = 'config.json';
 const ROOT_CONFIG_DIRNAME = '.airfn';
 const BASE_API_GATEWAY_ENDPOINT = 'lambda9.cloud';
-const AUTH_ENDPOINT = 'https://test.lambda9.cloud/cli/cliauth';
+const AUTH_ENDPOINT = 'https://cli.lambda9.cloud/cliauth';
+const PUBLISH_ENDPOINT = 'https://cli.lambda9.cloud/publishproject';
+const INSTALL_ENDPOINT = 'https://cli.lambda9.cloud/installproject';
 const SPINNER_TIMEOUT = 1000;
 const JSONpackage = JSON.parse(fs_1.default.readFileSync(path_1.default.join(__dirname, '..', '..', 'package.json')));
 commander_1.default.version(JSONpackage.version);
@@ -282,6 +285,98 @@ commander_1.default
         console.log(`Already logged out`);
         process.exit(1);
     }
+});
+commander_1.default
+    .command('publish')
+    .description('Publish project to Airfn Atmosphere')
+    .action(() => {
+    const airfnConfig = getUserLambdaConfig();
+    setTimeout(() => __awaiter(this, void 0, void 0, function* () {
+        const JSONpackage = JSON.parse(fs_1.default.readFileSync(path_1.default.join(process.cwd(), 'package.json')));
+        const dependencyOptions = Object.entries(JSONpackage.dependencies).map(dependency => {
+            const [module, version] = dependency;
+            return `${module}@${version}`;
+        });
+        yield inquirer_1.default
+            .prompt([
+            {
+                name: 'dependencies',
+                type: 'checkbox',
+                message: 'Which dependency modules are needed for this project?',
+                choices: dependencyOptions
+            },
+        ]).then((answers) => {
+            const spinner = ora_1.default('☁️   Airfn: Publishing your project...').start();
+            const dependencies = answers.dependencies;
+            const data = {
+                projectName: airfnConfig.project,
+                dependencies
+            };
+            axios_1.default.post(PUBLISH_ENDPOINT, data).then((response) => {
+                spinner.stop();
+                console.log('✨    Project now published on airfn.io/atmosphere!');
+            }).catch((err) => {
+                spinner.stop();
+                console.log(`😓   We're having some trouble publishing your project`);
+                process.exit();
+            });
+        });
+    }), SPINNER_TIMEOUT);
+});
+commander_1.default
+    .command('install <project>')
+    .description('Install a project from Airfn Atmosphere')
+    .action((project) => {
+    const airfnConfig = getUserLambdaConfig();
+    setTimeout(() => __awaiter(this, void 0, void 0, function* () {
+        const spinner = ora_1.default('☁️   Airfn: Installing project to your working directory').start();
+        const projectName = project;
+        const data = {
+            projectName
+        };
+        axios_1.default.post(INSTALL_ENDPOINT, data).then((response) => {
+            const { projectFunctions, dependencies } = response.data;
+            projectFunctions.forEach((func) => {
+                fs_1.default.writeFileSync(`${airfnConfig.functionsSrc}/${func.name}`, func.definition);
+            });
+            const installOpts = { saveDev: false, cache: false };
+            npmInstall(dependencies, installOpts, (err) => {
+                if (err) {
+                    spinner.stop();
+                    console.log(`😓   We're having some trouble installing this project`);
+                    process.exit();
+                }
+                spinner.stop();
+                console.log('✨    Install finished');
+            });
+        }).catch((err) => {
+            spinner.stop();
+            console.log(`😓   We're having some trouble publishing your project`);
+            process.exit();
+        });
+    }), SPINNER_TIMEOUT);
+    //   const JSONpackage = JSON.parse(
+    //     fs.readFileSync(path.join(process.cwd(), 'package.json'))
+    //   );
+    //   const dependencyOptions = Object.entries(JSONpackage.dependencies).map(dependency => {
+    //     const [module, version] = dependency;
+    //     return `${module}@${version}`;
+    //   });
+    //   await inquirer
+    //     .prompt([
+    //       {
+    //         name: 'dependencies',
+    //         type: 'checkbox',
+    //         message: 'Which dependency modules are needed for this project?',
+    //         choices: dependencyOptions
+    //       },
+    //     ]).then((answers: any) => {
+    //       const spinner = ora('☁️   Airfn: Publishing your project...').start();
+    //       const dependencies = answers.dependencies
+    //       const data = {
+    //         projectName: airfnConfig.project,
+    //         dependencies
+    //       }
 });
 commander_1.default.on('command:*', function () {
     console.error(`\n❌  "${commander_1.default.args.join(' ')}" command not found!`);

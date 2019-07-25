@@ -8,6 +8,8 @@ import inquirer from 'inquirer';
 import ora from 'ora';
 import chalk from 'chalk';
 import axios, { AxiosResponse } from 'axios';
+const npmInstall = require('npm-install-package');
+
 import listen from '../lib/serve/serve';
 import { run, watch } from '../lib/build/build';
 import deploy from '../lib/deploy/deploy';
@@ -18,7 +20,9 @@ import { config } from 'rxjs';
 const ROOT_CONFIG_FILENAME = 'config.json';
 const ROOT_CONFIG_DIRNAME = '.airfn';
 const BASE_API_GATEWAY_ENDPOINT = 'lambda9.cloud';
-const AUTH_ENDPOINT = 'https://test.lambda9.cloud/cli/cliauth';
+const AUTH_ENDPOINT = 'https://cli.lambda9.cloud/cliauth';
+const PUBLISH_ENDPOINT = 'https://cli.lambda9.cloud/publishproject';
+const INSTALL_ENDPOINT = 'https://cli.lambda9.cloud/installproject';
 const SPINNER_TIMEOUT = 1000;
 declare global {
   interface JSON {
@@ -325,6 +329,112 @@ program
         console.log(`Already logged out`);
         process.exit(1);
       }
+  });
+
+program
+  .command('publish')
+  .description('Publish project to Airfn Atmosphere')
+  .action(() => {
+    const airfnConfig = getUserLambdaConfig()!;
+    setTimeout(async () => {
+      const JSONpackage = JSON.parse(
+        fs.readFileSync(path.join(process.cwd(), 'package.json'))
+      );
+      const dependencyOptions = Object.entries(JSONpackage.dependencies).map(dependency => {
+        const [module, version] = dependency;
+        return `${module}@${version}`;
+      });
+
+      await inquirer
+        .prompt([
+          {
+            name: 'dependencies',
+            type: 'checkbox',
+            message: 'Which dependency modules are needed for this project?',
+            choices: dependencyOptions
+          },
+        ]).then((answers: any) => {
+          const spinner = ora('☁️   Airfn: Publishing your project...').start();
+          const dependencies = answers.dependencies
+          const data = {
+            projectName: airfnConfig.project,
+            dependencies
+          }
+
+          axios.post(PUBLISH_ENDPOINT, data).then((response: AxiosResponse) => {
+            spinner.stop();
+            console.log('✨    Project now published on airfn.io/atmosphere!')
+          }).catch((err: Error) => {
+            spinner.stop();
+            console.log(`😓   We're having some trouble publishing your project`);
+            process.exit()
+          })
+        })
+
+    }, SPINNER_TIMEOUT);
+  });
+
+  program
+  .command('install <project>')
+  .description('Install a project from Airfn Atmosphere')
+  .action((project) => {
+    const airfnConfig = getUserLambdaConfig()!;
+    setTimeout(async () => {
+      const spinner = ora('☁️   Airfn: Installing project to your working directory').start();
+      const projectName = project;
+      const data = {
+        projectName
+      };
+
+      axios.post(INSTALL_ENDPOINT, data).then((response: AxiosResponse) => {
+        const { projectFunctions, dependencies } = response.data;
+        projectFunctions.forEach((func: { name: string, definition: string}) => {
+            fs.writeFileSync(`${airfnConfig.functionsSrc}/${func.name}`, func.definition);
+        });
+        const installOpts = { saveDev: false, cache: false };
+        npmInstall(dependencies, installOpts, (err: Error) => {
+          if (err) {
+            spinner.stop();
+            console.log(`😓   We're having some trouble installing this project`);
+            process.exit()
+          }
+          spinner.stop();
+          console.log('✨    Install finished');
+        });
+    
+      }).catch((err: Error) => {
+        spinner.stop();
+        console.log(`😓   We're having some trouble installing your project`);
+        process.exit()
+      })
+    }, SPINNER_TIMEOUT);
+  
+      
+    //   const JSONpackage = JSON.parse(
+    //     fs.readFileSync(path.join(process.cwd(), 'package.json'))
+    //   );
+    //   const dependencyOptions = Object.entries(JSONpackage.dependencies).map(dependency => {
+    //     const [module, version] = dependency;
+    //     return `${module}@${version}`;
+    //   });
+
+    //   await inquirer
+    //     .prompt([
+    //       {
+    //         name: 'dependencies',
+    //         type: 'checkbox',
+    //         message: 'Which dependency modules are needed for this project?',
+    //         choices: dependencyOptions
+    //       },
+    //     ]).then((answers: any) => {
+    //       const spinner = ora('☁️   Airfn: Publishing your project...').start();
+    //       const dependencies = answers.dependencies
+    //       const data = {
+    //         projectName: airfnConfig.project,
+    //         dependencies
+    //       }
+
+
   });
 
 program.on('command:*', function() {
